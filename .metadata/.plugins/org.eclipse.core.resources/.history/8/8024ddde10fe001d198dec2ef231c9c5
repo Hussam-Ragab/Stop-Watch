@@ -1,0 +1,252 @@
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <util/delay.h>
+
+void DisplaySevenSegment(void);
+
+void INT0_Init(void); //External Interrupt INT0 with falling edge (internal pull-up resistor)
+
+void INT1_Init(void); //External Interrupt INT1 with raising edge (external pull-down resistor)
+
+void INT2_Init(void); //External Interrupt INT2 with falling edge (internal pull-up resistor)
+
+void TIMER1_COMPA_Init(void); //TIMER1 COMPA mode to count the Stop Watch time
+
+/*
+ *Timer1 16-Bits : 65536 counts
+ *frequency of CPU = 1 MHZ ------ Pre-scaler = 1024
+ *frequency of Timer = 10^6 / 1024 ~ 980 HZ
+ *time of Timer = 1/F_Timer = 1ms
+ *time of compare match =  no.of counts * Time of one count = 1000 * 1 = 1000ms
+ *no of compare for /1sec = 1 compare
+ * */
+
+
+unsigned char Sec1 = 0;
+unsigned char Sec2 = 0;
+
+unsigned char Min1 = 0;
+unsigned char Min2 = 0;
+
+unsigned char Hr1 = 0;
+unsigned char Hr2 = 0;
+
+unsigned char Second = 0;
+unsigned char Minute = 0;
+unsigned char Hour = 0;
+
+int main(void)
+{
+	/* Data Direction Register for First 6-pins in PORTA as Output to Enable 7-Segment */
+	DDRA |= 0x3F;
+
+	/* Data Direction Register for First 4-pins in PORTC as Output to Enable Decoder */
+	DDRC |= 0x0F;
+
+	/* Enable I-bit in Status Register to make Global Interrupt Enable (GIE) all interrupts Enable */
+	SREG |= (1<<7);
+
+	/* Enable External Interrupt INT0 with falling edge (internal pull-up resistor) */
+	INT0_Init();
+
+	/* Enable External Interrupt INT1 with raising edge (external pull-down resistor) */
+	INT1_Init();
+
+	/* Enable External Interrupt INT2 with falling edge (internal pull-up resistor) */
+	INT2_Init();
+
+	/* Enable TIMER1 COMPA mode to count the Stop Watch time*/
+	TIMER1_COMPA_Init();
+
+
+	while(1)
+	{
+		DisplaySevenSegment();
+	}
+
+}
+
+
+void INT0_Init(void)
+{
+	/* Data Direction Register for PD2 as input */
+	DDRD &= ~(1<<PD2);
+
+	/* Set PD2 to enable internal PullUp Resistor */
+	PORTD |= (1<<PD2);
+
+	/* MCU Control Register contains control bits Set ISC01 to Activate INT0 at Falling Edge */
+	MCUCR |= (1<<ISC01);
+
+	/* Enable General Interrupt Control Register (MIE) */
+	GICR |= (1<<INT0);
+
+	/* General Interrupt Flag Register (GIF) will be Set INTF0 after falling edge happened*/
+}
+
+void INT1_Init(void)
+{
+	/* Data Direction Register for PD3 as input */
+	DDRD &= ~(1<<PD3);
+
+	/* MCU Control Register contains control bits Set ISC10 & ISC11 to Activate INT1 at Rising Edge*/
+	MCUCR |= (1<<ISC10) | (1<<ISC11);
+
+	/* Enable General Interrupt Control Register (MIE) */
+	GICR |= (1<<INT1);
+
+	/* General Interrupt Flag Register (GIF) will be Set INTF1 after rising edge happened*/
+}
+
+void INT2_Init(void)
+{
+	/* Data Direction Register for PB2 as input */
+	DDRB &= ~(1<<PB2);
+
+	/* Set PD2 to enable internal PullUp Resistor */
+	PORTB |= (1<<PB2);
+
+	/* MCU Control and Status Register contains control bit Clear ISC2 to Activate INT2 at Falling Edge */
+	MCUCSR &= ~(1<<ISC2);
+
+	/* Enable General Interrupt Control Register (MIE) */
+	GICR |= (1<<INT2);
+
+	/* General Interrupt Flag Register (GIF) will be Set INT2 after falling edge happened*/
+}
+
+void TIMER1_COMPA_Init(void)
+{
+	/* Timer/Counter Register gives direct access TO compare match on the following timer clock */
+	TCNT1 = 0;
+
+	/* Output Compare Register that contains the value i wanna timer to make interrupt */
+	OCR1A = 1000;
+
+	/* Timer/Counter1 Control Register A :
+	 * 1) FOC1A = 1 non PWM
+	 * 2) WGM10 = 0 --- WGM11 = 0 CTC Mode 4
+	 *Timer/Counter1 Control Register B
+	 */
+	TCCR1A = (1<<FOC1A);
+
+	/* Timer/Counter1 Control Register B :
+	 * 1) Pre-Scaler = 1024 ---- CS10 = 1 --- CS11 = 0 --- CS12 = 1
+	 * 2) WGM12 = 1 --- WGM13 = 0 CTC Mode 4
+	 *
+	 */
+	TCCR1B = (1<<WGM12) | (1<<CS10) | (1<<CS12);
+
+	/*Timer/Counter Interrupt Mask Register Set Output Compare A Match Interrupt Enable (OCIE1A) */
+	TIMSK |= (1<<OCIE1A);
+
+
+}
+
+
+ISR(INT0_vect)
+{
+	Second = 0;
+	Minute = 0;
+	Hour = 0;
+
+}
+
+ISR(INT1_vect)
+{
+	/* No clock source (Timer/Counter stopped) */
+	TCCR1B &= ~(1<<CS10) & ~(1<<CS11) & ~(1<<CS12);
+}
+
+ISR(INT2_vect)
+{
+	/* Enable clock source (Timer/Counter) */
+	TCCR1B |= (1<<CS10) | (1<<CS12);
+
+}
+
+ISR(TIMER1_COMPA_vect)
+{
+	Second++;
+	if(Second>59)
+	{
+		Second=0;
+		Minute++;
+		if(Minute > 59)
+		{
+			Minute = 0;
+			Hour++;
+			if(Hour == 99)
+			{
+				Hour = 0;
+			}
+		}
+	}
+
+
+
+
+
+
+
+}
+
+
+void DisplaySevenSegment(void)
+{
+
+	Sec1 = Second%10;
+	Sec2= Second/10;
+
+	Min1 = Minute%10;
+	Min2= Minute/10;
+
+	Hr1 = Hour%10;
+	Hr2= Hour/10;
+
+	/* Enable (1st) 7-Segment only
+	 * Display (1st) Part of Seconds
+	 */
+	PORTA = (PORTA & 0xC0)| (0x01);
+	PORTC = (PORTC & 0xF0) | (Sec1 & 0x0F);
+	_delay_ms(1);
+
+	/* Enable (2nd) 7-Segment only
+	 * Display (2nd) Part of Seconds
+	 */
+	PORTA = (PORTA & 0xC0)| (0x02);
+	PORTC = (PORTC & 0xF0) | (Sec2 & 0x0F);
+	_delay_ms(1);
+
+	/* Enable (3rd) 7-Segment only
+	 * Display (3rd) Part of Seconds
+	 */
+	PORTA = (PORTA & 0xC0)| (0x04);
+	PORTC = (PORTC & 0xF0) | (Min1 & 0x0F);
+	_delay_ms(1);
+
+	/* Enable (4th) 7-Segment only
+	 * Display (4th) Part of Seconds
+	 */
+	PORTA = (PORTA & 0xC0)| (0x08);
+	PORTC = (PORTC & 0xF0) | (Min2 & 0x0F);
+	_delay_ms(1);
+
+	/* Enable (5th) 7-Segment only
+	 * Display (5th) Part of Seconds
+	 */
+	PORTA = (PORTA & 0xC0)| (0x10);
+	PORTC = (PORTC & 0xF0) | (Hr1 & 0x0F);
+	_delay_ms(1);
+
+	/* Enable (6th) 7-Segment only
+	 * Display (6th) Part of Seconds
+	 */
+	PORTA = (PORTA & 0xC0)| (0x20);
+	PORTC = (PORTC & 0xF0) | (Hr2 & 0x0F);
+	_delay_ms(1);
+
+}
+
+
+
